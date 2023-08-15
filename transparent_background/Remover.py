@@ -157,6 +157,72 @@ class Remover:
             
         return img.astype(np.uint8) 
 
+    def process_batch(self, imgs_batch, type='rgba'):
+        shape = imgs_batch[0].size[::-1]
+        xs = []
+        for img in imgs_batch:
+            x = self.transform(img)
+            x = x.unsqueeze(0)
+            x = x.to(self.device)
+            xs.append(x)
+        x_batch = torch.cat(xs)
+
+        with torch.no_grad():
+            pred_batch = self.model(x_batch)
+
+        pred_batch = F.interpolate(pred_batch, shape, mode='bilinear', align_corners=True)
+        pred_batch = pred_batch.data.cpu()
+        preds = []
+        for pred in pred_batch:
+            pred = pred.numpy().squeeze()
+            preds.append(pred)
+
+        res_batch = []
+        for img, pred in zip(imgs_batch, preds):
+            img = np.array(img)
+
+            if type.startswith('['):
+                type = [int(i) for i in type[1:-1].split(',')]
+
+            if type == 'map':
+                img = (np.stack([pred] * 3, axis=-1) * 255).astype(np.uint8)
+
+            elif type == 'rgba':
+                r, g, b = cv2.split(img)
+                pred = (pred * 255).astype(np.uint8)
+                img = cv2.merge([r, g, b, pred])
+
+            elif type == 'green':
+                bg = np.stack([np.ones_like(pred)] * 3, axis=-1) * [120, 255, 155]
+                img = img * pred[..., np.newaxis] + bg * (1 - pred[..., np.newaxis])
+
+            elif type == "white":
+                bg = np.stack([np.ones_like(pred)] * 3, axis=-1) * [255, 255, 255]
+                img = img * pred[..., np.newaxis] + bg * (1 - pred[..., np.newaxis])
+
+            elif len(type) == 3:
+                bg = np.stack([np.ones_like(pred)] * 3, axis=-1) * type
+                img = img * pred[..., np.newaxis] + bg * (1 - pred[..., np.newaxis])
+
+            elif type == 'blur':
+                img = img * pred[..., np.newaxis] + cv2.GaussianBlur(img, (0, 0), 15) * (1 - pred[..., np.newaxis])
+
+            elif type == 'overlay':
+                bg = (np.stack([np.ones_like(pred)] * 3, axis=-1) * [120, 255, 155] + img) // 2
+                img = bg * pred[..., np.newaxis] + img * (1 - pred[..., np.newaxis])
+                border = cv2.Canny(((pred > .5) * 255).astype(np.uint8), 50, 100)
+                img[border != 0] = [120, 255, 155]
+
+            elif type.lower().endswith(('.jpg', '.jpeg', '.png')):
+                if self.background is None:
+                    self.background = cv2.cvtColor(cv2.imread(type), cv2.COLOR_BGR2RGB)
+                    self.background = cv2.resize(self.background, img.shape[:2][::-1])
+                img = img * pred[..., np.newaxis] + self.background * (1 - pred[..., np.newaxis])
+
+            res_batch.append(img.astype(np.uint8))
+
+        return res_batch
+
 def console():
     args = parse_args()
     remover = Remover(fast=args.fast, jit=args.jit, device=args.device, ckpt=args.ckpt)
