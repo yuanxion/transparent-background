@@ -170,10 +170,10 @@ class Remover:
         with torch.no_grad():
             pred_batch = self.model(x_batch)
 
-        pred_batch = F.interpolate(pred_batch, shape, mode='bilinear', align_corners=True)
-        pred_batch = pred_batch.data.cpu()
         preds = []
         for pred in pred_batch:
+            pred = F.interpolate(pred_batch, shape, mode='bilinear', align_corners=True)
+            pred = pred_batch.data.cpu()
             pred = pred.numpy().squeeze()
             preds.append(pred)
 
