@@ -172,8 +172,8 @@ class Remover:
 
         preds = []
         for pred in pred_batch:
-            pred = F.interpolate(pred_batch, shape, mode='bilinear', align_corners=True)
-            pred = pred_batch.data.cpu()
+            pred = F.interpolate(pred.unsqueeze(0), shape, mode='bilinear', align_corners=True)
+            pred = pred.data.cpu()
             pred = pred.numpy().squeeze()
             preds.append(pred)
 
