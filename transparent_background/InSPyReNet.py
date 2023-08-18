@@ -144,7 +144,14 @@ class InSPyReNet(nn.Module):
             d0 = self.image_pyramid.reconstruct(d1, p0)
             
         pred = torch.sigmoid(d0)
-        pred = (pred - pred.min()) / (pred.max() - pred.min() + 1e-8)
+        if B > 1:
+            res = []
+            for i in range(B):
+                p = (pred[i] - pred[i].min()) / (pred[i].max() - pred[i].min() + 1e-8)
+                res.append(p.unsqueeze(0))
+            pred = torch.cat(res)
+        else:
+            pred = (pred - pred.min()) / (pred.max() - pred.min() + 1e-8)
 
         return pred
     

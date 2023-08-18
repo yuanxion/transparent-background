@@ -158,9 +158,11 @@ class Remover:
         return img.astype(np.uint8) 
 
     def process_batch(self, imgs_batch, type='rgba'):
-        shape = imgs_batch[0].size[::-1]
         xs = []
+        shapes = []
         for img in imgs_batch:
+            shape = img.size[::-1]
+            shapes.append(shape)
             x = self.transform(img)
             x = x.unsqueeze(0)
             x = x.to(self.device)
@@ -168,10 +170,10 @@ class Remover:
         x_batch = torch.cat(xs)
 
         with torch.no_grad():
-            pred_batch = self.model(x_batch)
+            preds_batch = self.model(x_batch)
 
         preds = []
-        for pred in pred_batch:
+        for pred, shape in zip(preds_batch, shapes):
             pred = F.interpolate(pred.unsqueeze(0), shape, mode='bilinear', align_corners=True)
             pred = pred.data.cpu()
             pred = pred.numpy().squeeze()
