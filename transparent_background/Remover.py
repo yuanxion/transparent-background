@@ -38,7 +38,7 @@ CONFIG = {
 }
 
 class Remover:
-    def __init__(self, fast=False, jit=False, device=None, ckpt=None):
+    def __init__(self, fast=False, jit=False, batch_size=1, device=None, ckpt=None):
         """
         fast   (default False): resize input into small size for fast computation
         jit    (default False): use TorchScript for fast computation
@@ -48,7 +48,7 @@ class Remover:
         key = "fast" if fast else "base"
         self.meta = CONFIG[key]
     
-        self.batch_size = 1
+        self.batch_size = batch_size
         if device is not None:
             self.device=device
         else:
@@ -104,16 +104,16 @@ class Remover:
             traced_model = torch.jit.load(os.path.join(self.ckpt_dir, ckpt_name), map_location=self.device)
             del self.model
             self.model = traced_model
-            self.batch_size = new_batch_size
         except:
             x = torch.rand(1, 3, *self.meta['base_size'])
             batch_input = torch.cat([x for _ in range(new_batch_size)])
             traced_model = torch.jit.trace(self.model, batch_input.to(self.device), strict=True)
             del self.model
             self.model = traced_model
-            self.batch_size = new_batch_size
             torch.jit.save(self.model, os.path.join(self.ckpt_dir, ckpt_name))
 
+        self.batch_size = new_batch_size
+        print(f'InSPyReNet: updated traced model with {self.batch_size = }')
 
     def process(self, img, type='rgba'):
         shape = img.size[::-1]            
@@ -171,9 +171,11 @@ class Remover:
         return img.astype(np.uint8) 
 
     def process_batch(self, imgs_batch: list, type='rgba'):
+        print(f'InSPyReNet process_batch {len(imgs_batch)}')
         if len(imgs_batch) > self.batch_size:
             self.update_model_batch_size(len(imgs_batch))
         elif len(imgs_batch) < self.batch_size:
+            print(f'InSPyReNet process_batch use origin model')
             self.model = self.model_backup
 
         xs = []
