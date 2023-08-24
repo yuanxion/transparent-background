@@ -48,6 +48,7 @@ class Remover:
         key = "fast" if fast else "base"
         self.meta = CONFIG[key]
     
+        self.batch_size = 1
         if device is not None:
             self.device=device
         else:
@@ -78,19 +79,13 @@ class Remover:
         self.model.eval()
         self.model.load_state_dict(torch.load(os.path.join(ckpt_dir, ckpt_name), map_location='cpu'), strict=True)
         self.model = self.model.to(self.device)
+
+        self.ckpt_dir = ckpt_dir
+        self.model_backup = self.model
         
         if jit:
-            ckpt_name = self.meta['ckpt_name'].replace('.pth', '_{}.pt'.format(self.device))
-            try:
-                traced_model = torch.jit.load(os.path.join(ckpt_dir, ckpt_name), map_location=self.device)
-                del self.model
-                self.model = traced_model
-            except:
-                traced_model = torch.jit.trace(self.model, torch.rand(1, 3, *self.meta['base_size']).to(self.device), strict=True)
-                del self.model
-                self.model = traced_model
-                torch.jit.save(self.model, os.path.join(ckpt_dir, ckpt_name))
-    
+            self.update_model_batch_size(self.batch_size)
+
         self.transform = transforms.Compose([static_resize(self.meta['base_size']) if jit else self.meta['resize'],
                                             tonumpy(),
                                             normalize(mean=[0.485, 0.456, 0.406], 
@@ -102,6 +97,24 @@ class Remover:
         # print('=' * (len(desc) + 2) + '\n', desc, '\n' + '=' * (len(desc) + 2))
         print('Settings -> {}'.format(desc))
     
+    def update_model_batch_size(self, new_batch_size):
+        self.model = self.model_backup
+        ckpt_name = self.meta['ckpt_name'].replace('.pth', '_{}_bs{}.pt'.format(self.device, new_batch_size))
+        try:
+            traced_model = torch.jit.load(os.path.join(self.ckpt_dir, ckpt_name), map_location=self.device)
+            del self.model
+            self.model = traced_model
+            self.batch_size = new_batch_size
+        except:
+            x = torch.rand(1, 3, *self.meta['base_size'])
+            batch_input = torch.cat([x for _ in range(new_batch_size)])
+            traced_model = torch.jit.trace(self.model, batch_input.to(self.device), strict=True)
+            del self.model
+            self.model = traced_model
+            self.batch_size = new_batch_size
+            torch.jit.save(self.model, os.path.join(self.ckpt_dir, ckpt_name))
+
+
     def process(self, img, type='rgba'):
         shape = img.size[::-1]            
         x = self.transform(img)
@@ -157,7 +170,12 @@ class Remover:
             
         return img.astype(np.uint8) 
 
-    def process_batch(self, imgs_batch, type='rgba'):
+    def process_batch(self, imgs_batch: list, type='rgba'):
+        if len(imgs_batch) > self.batch_size:
+            self.update_model_batch_size(len(imgs_batch))
+        elif len(imgs_batch) < self.batch_size:
+            self.model = self.model_backup
+
         xs = []
         shapes = []
         for img in imgs_batch:
